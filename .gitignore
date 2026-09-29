@@ -1,0 +1,5 @@
+# personal details of the certifying lawyer - stays local
+lawyer-profile.json
+__pycache__/
+.DS_Store
+~$*
