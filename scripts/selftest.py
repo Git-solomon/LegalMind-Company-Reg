@@ -71,9 +71,20 @@ def main():
         dst.write_bytes(src.read_bytes())
         n = prepare.unprotect(dst)
         if n != 1:
-            raise RuntimeError(f"expected 1 protection element, removed {n}")
+            raise RuntimeError(f"expected 1 protection element, switched off {n}")
         return f"({len(F.collect_fields(F.load(dst)))} fields)"
-    stage("unlock .docx", unlock)
+    stage("unlock .docx (direct)", unlock)
+
+    def unlock_word_xml():
+        dst = out / "form1-unlocked.docx"
+        n = prepare.unlock_via_word_xml(TEMPLATES / "form1-company-registration.doc", dst)
+        with __import__("zipfile").ZipFile(dst) as z:
+            settings = z.read("word/settings.xml").decode("utf-8")
+        if n != 1 or 'w:enforcement="1"' in settings:
+            raise RuntimeError("document is still protected after the Word XML route")
+        return f"({len(F.collect_fields(F.load(dst)))} fields)"
+    if has_engine and wordauto.backend() != "libreoffice":
+        stage("unlock via Word XML (Form 1)", unlock_word_xml)
 
     def fill():
         vals = out / "values.json"

@@ -22,9 +22,9 @@ IS_WIN = sys.platform == "win32"
 
 MAC_WORD = "/Applications/Microsoft Word.app"
 MAC_BOX = Path.home() / "Library/Containers/com.microsoft.Word/Data/Documents/_cid_tmp"
-MAC_FORMATS = {"docx": "format document default", "pdf": "format PDF"}
-# WdSaveFormat: wdFormatDocumentDefault = 16, wdFormatPDF = 17
-WIN_FORMATS = {"docx": 16, "pdf": 17}
+MAC_FORMATS = {"docx": "format document default", "pdf": "format PDF", "xml": "format flat document"}
+# WdSaveFormat: wdFormatDocumentDefault = 16, wdFormatPDF = 17, wdFormatFlatXML = 19
+WIN_FORMATS = {"docx": 16, "pdf": 17, "xml": 19}
 
 
 def _soffice():
@@ -128,7 +128,7 @@ def backend():
 
 
 def convert(src, dst, fmt):
-    """Convert src to dst in format fmt ('docx' or 'pdf')."""
+    """Convert src to dst in format fmt ('docx', 'pdf', or 'xml' = Word XML Document)."""
     src, dst = Path(src).resolve(), Path(dst).resolve()
     dst.parent.mkdir(parents=True, exist_ok=True)
     engine = backend()
