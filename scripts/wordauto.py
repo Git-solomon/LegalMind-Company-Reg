@@ -1,38 +1,58 @@
-"""Drive Microsoft Word for Mac (via AppleScript) to convert files.
+"""Drive Microsoft Word to convert files (.doc -> .docx, .docx -> .pdf).
 
-Word for Mac is sandboxed: it can only reliably write inside its own container
-(~/Library/Containers/com.microsoft.Word/Data/). So every conversion copies the
-source into that container, has Word "save as" there, and copies the result back.
+- macOS: AppleScript. Word for Mac is sandboxed and can only reliably write
+  inside its own container (~/Library/Containers/com.microsoft.Word/Data/),
+  so the source is copied there, converted, and the result copied back.
+- Windows: Word's COM interface through PowerShell (no extra Python packages).
+- Fallback on either: LibreOffice (soffice).
 
-Falls back to LibreOffice (soffice) if Word is not installed.
+Conversions always run on ASCII-named temporary copies, so Hebrew output paths
+never reach AppleScript / PowerShell / soffice.
 """
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
 
-WORD_APP = "/Applications/Microsoft Word.app"
-WORD_BOX = Path.home() / "Library/Containers/com.microsoft.Word/Data/Documents/_cid_tmp"
+IS_MAC = sys.platform == "darwin"
+IS_WIN = sys.platform == "win32"
 
-# AppleScript enum names for Word's "save as ... file format"
-FORMATS = {"docx": "format document default", "pdf": "format PDF", "doc": "format document97"}
+MAC_WORD = "/Applications/Microsoft Word.app"
+MAC_BOX = Path.home() / "Library/Containers/com.microsoft.Word/Data/Documents/_cid_tmp"
+MAC_FORMATS = {"docx": "format document default", "pdf": "format PDF"}
+# WdSaveFormat: wdFormatDocumentDefault = 16, wdFormatPDF = 17
+WIN_FORMATS = {"docx": 16, "pdf": 17}
 
 
 def _soffice():
-    for p in ("soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice"):
+    candidates = ["soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice"]
+    if IS_WIN:
+        for base in (os.environ.get("ProgramFiles", r"C:\Program Files"),
+                     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")):
+            candidates.append(os.path.join(base, "LibreOffice", "program", "soffice.exe"))
+    for p in candidates:
         if shutil.which(p) or os.path.exists(p):
             return p
     return None
 
 
-def _word_convert(src: Path, dst: Path, fmt: str):
-    WORD_BOX.mkdir(parents=True, exist_ok=True)
+def _win_word_available():
+    if not IS_WIN:
+        return False
+    r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "if (Test-Path 'Registry::HKEY_CLASSES_ROOT\\Word.Application') { 'yes' }"],
+                       capture_output=True)
+    return b"yes" in r.stdout
+
+
+def _mac_word(src: Path, dst: Path, fmt: str):
+    MAC_BOX.mkdir(parents=True, exist_ok=True)
     tag = uuid.uuid4().hex[:8]
-    # ASCII-only names inside the container avoid AppleScript/HFS encoding issues
-    box_src = WORD_BOX / f"in_{tag}{src.suffix}"
-    box_dst = WORD_BOX / f"out_{tag}.{fmt}"
+    box_src = MAC_BOX / f"in_{tag}{src.suffix}"
+    box_dst = MAC_BOX / f"out_{tag}.{fmt}"
     shutil.copy2(src, box_src)
     script = f'''
 with timeout of 180 seconds
@@ -41,40 +61,82 @@ tell application "Microsoft Word"
     open (POSIX file "{box_src}")
     delay 2
     set theDoc to document 1
-    save as theDoc file name ((POSIX file "{box_dst}") as text) file format {FORMATS[fmt]}
+    save as theDoc file name ((POSIX file "{box_dst}") as text) file format {MAC_FORMATS[fmt]}
     close every document saving no
 end tell
 end timeout
 '''
     try:
-        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        r = subprocess.run(["osascript", "-e", script], capture_output=True)
         if not box_dst.exists():
-            raise RuntimeError(f"Word conversion failed: {r.stderr.strip() or r.stdout.strip()}")
-        dst.parent.mkdir(parents=True, exist_ok=True)
+            raise RuntimeError("Word conversion failed: "
+                               + (r.stderr or r.stdout).decode("utf-8", "replace").strip())
         shutil.move(str(box_dst), dst)
     finally:
-        for p in WORD_BOX.glob(f"*{tag}*"):
+        for p in list(MAC_BOX.glob(f"*{tag}*")) + list(MAC_BOX.glob("~$*")):
             p.unlink(missing_ok=True)
-        for p in WORD_BOX.glob("~$*"):
-            p.unlink(missing_ok=True)
+
+
+def _win_word(src: Path, dst: Path, fmt: str):
+    with tempfile.TemporaryDirectory() as td:
+        tmp_src = Path(td) / f"in{src.suffix}"
+        tmp_dst = Path(td) / f"out.{fmt}"
+        shutil.copy2(src, tmp_src)
+        src_ps, dst_ps = (str(x).replace("'", "''") for x in (tmp_src, tmp_dst))
+        ps = f'''
+$ErrorActionPreference = 'Stop'
+$word = New-Object -ComObject Word.Application
+try {{
+    $word.Visible = $false
+    $word.DisplayAlerts = 0
+    # Open(FileName, ConfirmConversions, ReadOnly, AddToRecentFiles)
+    $doc = $word.Documents.Open('{src_ps}', $false, $true, $false)
+    $doc.SaveAs2('{dst_ps}', {WIN_FORMATS[fmt]})
+    $doc.Close(0)
+}} finally {{
+    $word.Quit(0)
+    [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word)
+}}
+'''
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                            "-Command", ps], capture_output=True, timeout=300)
+        if not tmp_dst.exists():
+            raise RuntimeError("Word conversion failed: "
+                               + (r.stderr or r.stdout).decode("utf-8", "replace").strip())
+        shutil.move(str(tmp_dst), dst)
 
 
 def _soffice_convert(src: Path, dst: Path, fmt: str):
     exe = _soffice()
     with tempfile.TemporaryDirectory() as td:
-        subprocess.run([exe, "--headless", "--convert-to", fmt, "--outdir", td, str(src)],
+        tmp_src = Path(td) / f"in{src.suffix}"
+        shutil.copy2(src, tmp_src)
+        subprocess.run([exe, "--headless", "--convert-to", fmt, "--outdir", td, str(tmp_src)],
                        check=True, capture_output=True)
-        out = next(Path(td).glob(f"*.{fmt}"))
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(out), dst)
+        shutil.move(str(Path(td) / f"in.{fmt}"), dst)
+
+
+def backend():
+    """Name of the converter that will be used, or None."""
+    if IS_MAC and os.path.exists(MAC_WORD):
+        return "word-mac"
+    if _win_word_available():
+        return "word-windows"
+    if _soffice():
+        return "libreoffice"
+    return None
 
 
 def convert(src, dst, fmt):
-    """Convert src to dst in format fmt ('docx', 'pdf', 'doc')."""
+    """Convert src to dst in format fmt ('docx' or 'pdf')."""
     src, dst = Path(src).resolve(), Path(dst).resolve()
-    if os.path.exists(WORD_APP):
-        _word_convert(src, dst, fmt)
-    elif _soffice():
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    engine = backend()
+    if engine == "word-mac":
+        _mac_word(src, dst, fmt)
+    elif engine == "word-windows":
+        _win_word(src, dst, fmt)
+    elif engine == "libreoffice":
         _soffice_convert(src, dst, fmt)
     else:
         raise RuntimeError("Neither Microsoft Word nor LibreOffice is available for conversion.")

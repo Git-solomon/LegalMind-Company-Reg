@@ -10,14 +10,25 @@
 5. פותח את הטפסים הנעולים, ממלא אותם ומפיק PDF.
 
 ## התקנה
+macOS:
 ```bash
 git clone git@github.com:Git-solomon/LegalMind-Company-Reg.git ~/.claude/skills/company-incorporation-docs
+python3 -m pip install lxml
+python3 ~/.claude/skills/company-incorporation-docs/scripts/selftest.py
 ```
 
+Windows (PowerShell):
+```powershell
+git clone git@github.com:Git-solomon/LegalMind-Company-Reg.git "$HOME\.claude\skills\company-incorporation-docs"
+py -m pip install lxml
+py "$HOME\.claude\skills\company-incorporation-docs\scripts\selftest.py"
+```
+`selftest.py` מריץ את כל השלבים עם נתוני דמה ומדווח אם משהו חסר.
+
 ## דרישות
-- macOS עם Microsoft Word (או LibreOffice כחלופה) — להמרת ‎.doc ולהפקת PDF.
+- Microsoft Word (macOS או Windows), או LibreOffice כחלופה — להמרת ‎.doc ולהפקת PDF.
 - Python 3 עם `lxml`.
-- `curl` (לבדיקת שם החברה).
+- `curl` (לבדיקת שם החברה) — מובנה ב־macOS וב־Windows 10 ומעלה.
 
 ## מבנה
 - `SKILL.md` — ההנחיות לסקיל.

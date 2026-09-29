@@ -20,6 +20,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import wordauto  # noqa: E402
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")  # Hebrew output on Windows consoles
+
 PROTECTION_RE = re.compile(rb"<w:(documentProtection|writeProtection)\b[^>]*/>")
 
 

@@ -12,6 +12,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import wordauto  # noqa: E402
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")  # Hebrew output on Windows consoles
+
 if len(sys.argv) != 3:
     sys.exit(__doc__)
 print(wordauto.convert(sys.argv[1], sys.argv[2], "pdf"))

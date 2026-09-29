@@ -21,6 +21,7 @@ unlocked) in <output_dir>/docx/ for later touch-ups. Prints every text field lef
 each one is intentionally blank (signature/registrar-only/not applicable).
 """
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,15 @@ TEMPLATES = HERE.parent / "templates"
 sys.path.insert(0, str(HERE))
 import fields as F  # noqa: E402
 import wordauto  # noqa: E402
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")  # Hebrew output on Windows consoles
+
+
+def safe_filename(name):
+    """Windows forbids <>:"/\\|?* in file names; בע"מ becomes בע״מ (Hebrew gershayim)."""
+    name = name.replace('"', "\u05f4").replace("'", "\u05f3")
+    return re.sub(r'[<>:/\\|?*]', "-", name).strip(" .")
 
 
 def find_template(name):
@@ -57,11 +67,12 @@ def main():
             values.write_text(json.dumps({k: doc.get(k, []) if k != "fields" else doc.get(k, {})
                                           for k in ("fields", "replace", "cells")}, ensure_ascii=False),
                               encoding="utf-8")
-            filled = out / "docx" / f"{doc['output']}.docx"
+            base = safe_filename(doc["output"])
+            filled = out / "docx" / f"{base}.docx"
             F.cmd_fill(str(prepared), str(values), str(filled))
             flat = td / f"flat_{i}.docx"
             F.cmd_flatten(str(filled), str(flat))
-            pdf = out / f"{doc['output']}.pdf"
+            pdf = out / f"{base}.pdf"
             wordauto.convert(flat, pdf, "pdf")
             print(f"PDF -> {pdf}")
             root = F.load(filled)

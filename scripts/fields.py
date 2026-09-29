@@ -36,6 +36,9 @@ from pathlib import Path
 
 from lxml import etree
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")  # Hebrew output on Windows consoles
+
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS = {"w": W}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"

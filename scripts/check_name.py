@@ -21,6 +21,9 @@ import sys
 import urllib.parse
 from difflib import SequenceMatcher
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")  # Hebrew output on Windows consoles
+
 API = "https://data.gov.il/api/3/action/datastore_search"
 RESOURCE = "f004176c-b85f-4542-8901-7b3176f9a054"
 NAME, EN_NAME, NUMBER, STATUS = "שם חברה", "שם באנגלית", "מספר חברה", "סטטוס חברה"
@@ -57,10 +60,12 @@ def distinctive(normalized):
 def query(q, limit=1000):
     params = urllib.parse.urlencode({"resource_id": RESOURCE, "q": q, "limit": limit,
                                      "fields": ",".join([NUMBER, NAME, EN_NAME, STATUS])})
-    # curl rather than urllib: python.org builds on macOS often lack CA certificates
+    # curl rather than urllib: python.org builds on macOS often lack CA certificates.
+    # curl ships with macOS and with Windows 10+. Decode explicitly: the Windows
+    # locale encoding would garble the Hebrew JSON.
     out = subprocess.run(["curl", "-sS", "-m", "60", f"{API}?{params}"],
-                         capture_output=True, text=True, check=True).stdout
-    data = json.loads(out)
+                         capture_output=True, check=True).stdout
+    data = json.loads(out.decode("utf-8"))
     if not data.get("success"):
         raise RuntimeError(f"data.gov.il error: {data.get('error')}")
     return data["result"]["records"]

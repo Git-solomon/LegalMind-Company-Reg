@@ -22,14 +22,21 @@ description: מכין חבילת מסמכי הקמת חברה ישראלית ל�
 - `scripts/to_pdf.py` — ממיר ל־PDF דרך Word.
 - `scripts/build.py` — מריץ את כל השרשרת מקובץ תוכנית אחד.
 - `scripts/check_name.py` — בודק אם שם החברה תפוס במאגר רשם החברות.
+- `scripts/selftest.py` — בודק שהמחשב מסוגל להריץ את הסקיל (macOS או Windows).
 - `lawyer-profile.json` — (אם קיים) פרטי עורך הדין המאמת הקבועים.
+
+## Windows ו־macOS
+הסקיל עובד בשתי המערכות. ב־Windows הפקודה היא `py` (או `python`) במקום `python3`, ונתיבים
+עם רווחים או עברית צריכים להיות במירכאות. בפעם הראשונה במחשב חדש, או כשמשהו נכשל, הרץ
+`scripts/selftest.py`: הוא בודק כל שלב (Word, המרת .doc, מילוי, PDF, בדיקת שם) ומדווח
+בדיוק מה לא עובד.
 
 ## שלב 1 — קריאת המייל
 המייל יכול להגיע כ־`.eml`, `.msg`, PDF, טקסט מודבק, צילום מסך, או הפניה ל־Gmail (אם יש
 כלי Gmail מחובר — לחפש את השרשור ולקרוא את כולו, כולל תשובות). ל־`.eml`:
 
 ```bash
-python3 -c "import email,sys;from email import policy;m=email.message_from_file(open(sys.argv[1]),policy=policy.default);print(m['subject']);b=m.get_body(('plain','html'));print(b.get_content());[print('ATTACHMENT:',p.get_filename()) for p in m.iter_attachments()]" mail.eml
+python3 -c "import email,sys;from email import policy;m=email.message_from_file(open(sys.argv[1],encoding='utf-8',errors='replace'),policy=policy.default);print(m['subject']);b=m.get_body(('plain','html'));print(b.get_content());[print('ATTACHMENT:',p.get_filename()) for p in m.iter_attachments()]" mail.eml
 ```
 
 קרא גם קבצים מצורפים (צילומי ת"ז, תקנון, הסכם מייסדים) — לעיתים הפרטים שם.
@@ -129,15 +136,19 @@ python3 <skill>/scripts/build.py plan.json "<תיקיית פלט>"
 ### למה צריך את שלב ה"פתיחה" (prepare)
 הטפסים של הרשם מגיעים נעולים ("הגבלת עריכה — מילוי טפסים בלבד" עם סיסמה), וחלקם בפורמט
 Word הישן `.doc` (בינארי) שאי אפשר לערוך ב־XML. `prepare.py`:
-1. ממיר `.doc` → `.docx` דרך Microsoft Word (AppleScript). שדות הטופס הישנים
-   (FORMTEXT/FORMCHECKBOX) שורדים את ההמרה.
+1. ממיר `.doc` → `.docx` דרך Microsoft Word. שדות הטופס הישנים (FORMTEXT/FORMCHECKBOX)
+   שורדים את ההמרה.
 2. מוחק את `<w:documentProtection>` מ־`word/settings.xml`. הנעילה היא רק דגל + hash של
    הסיסמה, כך שמחיקת האלמנט פותחת את הקובץ בלי לדעת את הסיסמה.
 
-Word ל־Mac רץ ב־sandbox ויכול לכתוב בוודאות רק בתוך
-`~/Library/Containers/com.microsoft.Word/Data/` — לכן `wordauto.py` מעתיק לשם, ממיר, ומחזיר.
-אם Word לא מותקן, יש fallback ל־LibreOffice (`soffice`). אם אף אחד מהם לא זמין — עצור
-ואמור למשתמש; `textutil` של macOS **לא** מתאים (מאבד את שדות הטופס והעיצוב).
+`wordauto.py` בוחר לבד את מנוע ההמרה:
+- **macOS** — Word דרך AppleScript. Word ל־Mac רץ ב־sandbox ויכול לכתוב בוודאות רק בתוך
+  `~/Library/Containers/com.microsoft.Word/Data/`, לכן הקובץ מועתק לשם, מומר ומוחזר.
+- **Windows** — Word דרך COM ב־PowerShell (בלי חבילות Python נוספות).
+- **חלופה בשתי המערכות** — LibreOffice (`soffice`).
+
+אם אף מנוע לא זמין — עצור ואמור למשתמש. `textutil` של macOS **לא** מתאים (מאבד את שדות
+הטופס והעיצוב).
 
 ### תבנית חדשה או לא מוכרת
 אם הרשם עדכן טופס או שהמשתמש הביא טופס אחר: הרץ `prepare.py`, ואז
