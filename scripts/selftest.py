@@ -60,31 +60,45 @@ def main():
         return f"({b})"
     has_engine = stage("conversion engine", engine)
 
-    form1 = out / "form1.docx"
-    if has_engine:
-        stage(".doc -> .docx conversion (Form 1)",
-              lambda: wordauto.convert(TEMPLATES / "form1-company-registration.doc", form1, "docx") and None)
+    def templates_unlocked():
+        names = ["form1-company-registration", "shareholder-declaration",
+                 "director-declaration", "sole-company-articles"]
+        locked = [n for n in names if prepare.is_locked(TEMPLATES / f"{n}.docx")]
+        if locked:
+            raise RuntimeError(f"still locked: {locked}")
+        return f"({len(names)} templates)"
+    stage("bundled templates are unlocked", templates_unlocked)
 
     def unlock():
+        # lock a copy of a template the way the Registrar ships it, then unlock it
+        import zipfile
         src = TEMPLATES / "director-declaration.docx"
         dst = out / "director.docx"
-        dst.write_bytes(src.read_bytes())
+        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == "word/settings.xml":
+                    data = data.replace(b'w:enforcement="0"', b'w:enforcement="1"')
+                zout.writestr(item, data)
+        if not prepare.is_locked(dst):
+            raise RuntimeError("could not create a locked test copy")
         n = prepare.unprotect(dst)
         if n != 1:
             raise RuntimeError(f"expected 1 protection element, switched off {n}")
         return f"({len(F.collect_fields(F.load(dst)))} fields)"
     stage("unlock .docx (direct)", unlock)
 
-    def unlock_word_xml():
-        dst = out / "form1-unlocked.docx"
-        n = prepare.unlock_via_word_xml(TEMPLATES / "form1-company-registration.doc", dst)
-        with __import__("zipfile").ZipFile(dst) as z:
-            settings = z.read("word/settings.xml").decode("utf-8")
-        if n != 1 or 'w:enforcement="1"' in settings:
-            raise RuntimeError("document is still protected after the Word XML route")
-        return f"({len(F.collect_fields(F.load(dst)))} fields)"
+    def word_xml_round_trip():
+        # the route used to unlock a new locked form: Word XML and back must keep every field
+        src = TEMPLATES / "form1-company-registration.docx"
+        dst = out / "form1-roundtrip.docx"
+        prepare.unlock_via_word_xml(src, dst)
+        n_src, n_dst = (len(F.collect_fields(F.load(p))) for p in (src, dst))
+        if n_src != n_dst or prepare.is_locked(dst):
+            raise RuntimeError(f"fields {n_src} -> {n_dst}, locked={prepare.is_locked(dst)}")
+        return f"({n_dst} fields)"
     if has_engine and wordauto.backend() != "libreoffice":
-        stage("unlock via Word XML (Form 1)", unlock_word_xml)
+        stage("Word XML round trip (for new locked forms)", word_xml_round_trip)
 
     def fill():
         vals = out / "values.json"

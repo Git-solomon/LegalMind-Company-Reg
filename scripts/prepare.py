@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Make a Registrar-of-Companies template freely editable.
 
+The templates bundled in templates/ are already unlocked, so this is needed only
+for a new or updated form that arrives locked (build.py skips it otherwise).
+
   python3 prepare.py <template.doc|.docx> <out.docx>
 
 Follows the manual unlock procedure, automated:
@@ -37,6 +40,16 @@ def disable_enforcement(xml: str):
     return ENFORCEMENT_RE.subn(r"\g<1>0\g<3>", xml)
 
 
+def is_locked(path: Path):
+    """True for a .doc (can't tell - treat as locked) or a .docx with enforcement on."""
+    path = Path(path)
+    if path.suffix.lower() != ".docx":
+        return True
+    with zipfile.ZipFile(path) as z:
+        settings = z.read("word/settings.xml").decode("utf-8")
+    return bool(ENFORCEMENT_RE.search(settings))
+
+
 def unprotect(docx: Path):
     """Switch off enforcement inside a .docx directly (used without Word)."""
     tmp = docx.with_suffix(".tmp.docx")
@@ -67,6 +80,10 @@ def main():
         sys.exit(__doc__)
     src, dst = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if not is_locked(src):
+        shutil.copy2(src, dst)
+        print(f"already unlocked, copied -> {dst}")
+        return
     if wordauto.backend() in ("word-mac", "word-windows"):
         n = unlock_via_word_xml(src, dst)
         print(f"Word XML route: enforcement switched off on {n} element(s) -> {dst}")

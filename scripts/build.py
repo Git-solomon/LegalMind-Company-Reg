@@ -15,7 +15,8 @@ plan.json:
   ]
 }
 
-For each document: prepare (unlock / convert .doc) -> fill -> flatten -> PDF.
+For each document: fill -> flatten -> PDF. The bundled templates are stored
+already unlocked; a template that is still locked is unlocked first (prepare.py).
 Writes <output_dir>/<output>.pdf and keeps the filled .docx (fields still live,
 unlocked) in <output_dir>/docx/ for later touch-ups. Prints every text field left empty, so you can confirm
 each one is intentionally blank (signature/registrar-only/not applicable).
@@ -31,6 +32,7 @@ HERE = Path(__file__).parent
 TEMPLATES = HERE.parent / "templates"
 sys.path.insert(0, str(HERE))
 import fields as F  # noqa: E402
+import prepare as P  # noqa: E402
 import wordauto  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -61,8 +63,12 @@ def main():
         td = Path(td)
         for i, doc in enumerate(plan["documents"]):
             src = find_template(doc["template"])
-            prepared = td / f"prep_{i}.docx"
-            subprocess.run([sys.executable, str(HERE / "prepare.py"), str(src), str(prepared)], check=True)
+            if P.is_locked(src):
+                # a new/updated form that is still locked: unlock it first (Word XML route)
+                prepared = td / f"prep_{i}.docx"
+                subprocess.run([sys.executable, str(HERE / "prepare.py"), str(src), str(prepared)], check=True)
+            else:
+                prepared = src  # bundled templates are stored unlocked
             values = td / f"values_{i}.json"
             values.write_text(json.dumps({k: doc.get(k, []) if k != "fields" else doc.get(k, {})
                                           for k in ("fields", "replace", "cells")}, ensure_ascii=False),
